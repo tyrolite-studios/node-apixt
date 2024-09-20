@@ -1,0 +1,23 @@
+{
+  "name": "node-apixt",
+  "version": "0.0.1",
+  "description": "Extends your nodejs API with a web interface in the browser, simplifying development and debugging",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tyrolite-studios/node-apixt.git"
+  },
+  "author": "TyroLite Studios",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/tyrolite-studios/node-apixt/issues"
+  },
+  "homepage": "https://github.com/tyrolite-studios/node-apixt#readme",
+  "dependencies": {
+    "jose": "^5.9.2"
+  }
+}
