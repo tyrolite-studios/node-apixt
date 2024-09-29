@@ -18,6 +18,8 @@
   },
   "homepage": "https://github.com/tyrolite-studios/node-apixt#readme",
   "dependencies": {
-    "jose": "^5.9.2"
+    "debug": "^4.3.7",
+    "jose": "^5.9.2",
+    "koa-body": "^6.0.1"
   }
 }

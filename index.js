@@ -2,6 +2,7 @@ import path from "node:path"
 import fs from "node:fs"
 import { isBool, isInt, isArray, isString, d } from "./helper.js"
 import { SignJWT, jwtVerify } from "jose"
+import os from "node:os"
 
 const __dirname = import.meta.dirname
 
@@ -364,11 +365,18 @@ const packageJsonPath = path.resolve(__dirname, "package.json")
 const packageJsonContent = fs.readFileSync(packageJsonPath, "utf-8")
 const packageJson = JSON.parse(packageJsonContent)
 
-const hostApi = {
-    language: "nodejs",
-    version: process.versions.node,
-    apixt: packageJson.name + " v" + packageJson.version,
-    link: packageJson.repository.url
+const hostingApi = {
+    language: { name: "nodejs", version: process.versions.node },
+    apixt: {
+        name: packageJson.name,
+        version: packageJson.version,
+        link: packageJson.repository.url
+    },
+    platform: {
+        name: os.platform(),
+        version: os.release(),
+        build: os.version()
+    }
 }
 
 const apixtDist = process.env.APIXT_DIST ? process.env.APIXT_DIST : "web"
@@ -455,12 +463,13 @@ const apixt = {
             if (parts.length == 2 || parts[0] === "Bearer") {
                 const username = await getUsernameFromToken(parts[1])
                 if (username) {
-                    apixt.sendAuthorized(res, username)
+                    await apixt.sendAuthorized(res, username)
                     return
                 }
             }
         }
-        res.status(401).send()
+        res.status(401)
+        res.send()
     },
     sendAuthorized: async (res, username) => {
         const tokenString = await createToken(username)
@@ -478,18 +487,21 @@ const apixt = {
             await apixt.sendAuthorized(res, username)
             return
         }
-        res.status(401).send()
+        res.status(401)
+        res.send()
     },
     handleDumpJs: async (req, res) => {
         const cookies = parseCookies(req)
         const jwt = cookies[apixt.jwtCookieKey]
         if (!jwt) {
-            res.status(401).send()
+            res.status(401)
+            res.send()
             return
         }
         const username = await getUsernameFromToken(jwt)
         if (!username) {
-            res.status(401).send()
+            res.status(401)
+            res.send()
             return
         }
         res.set("Content-Type", "text/javascript")
@@ -498,8 +510,8 @@ const apixt = {
                 `; controller.startApp('apixt', ${JSON.stringify({ ...apixt.apixtConfig, username })})`
         )
     },
-    addRoute(path, method) {
-        routes.push({ path, method })
+    addRoute(path, methods) {
+        routes.push({ path, methods: isArray(methods) ? methods : [methods] })
     },
     dumpHttpResponse(res, buffer) {
         const { xt } = res
@@ -567,10 +579,10 @@ const apixt = {
             if (!option.public) continue
             apixtConfig[key] = config[key]
         }
-        apixtConfig.routes = routes.map((item) => item.path)
+        apixtConfig.routes = routes
         return {
             ...apixtConfig,
-            hostApi
+            hostingApi
         }
     },
     get bootConfig() {

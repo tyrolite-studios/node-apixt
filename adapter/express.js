@@ -1,8 +1,10 @@
 import { d } from "../helper.js"
 import apixt from "../index.js"
+import debugInst from "debug"
+const debug = debugInst("apixt")
 
 const adapter = (config, express) => {
-    d("Starting Apixt Express Adapter...")
+    debug("Starting Apixt Express Adapter...")
     let app = express()
     apixt.init(config)
 
