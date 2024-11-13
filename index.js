@@ -6,6 +6,8 @@ import os from "node:os"
 
 const __dirname = import.meta.dirname
 
+const env = process.env
+
 const configOptions = {
     apiId: { type: "string", public: true, required: true },
     baseUrl: { type: "string", public: true, required: true },
@@ -15,8 +17,24 @@ const configOptions = {
     routes: { type: "array", public: true, default: [] },
     dumpHeader: { type: "string", public: true, default: "Tls-Apixt-Dump" },
     storePrefix: { type: "string", public: true, default: "tls.apixt." },
-    jwtSecret: { type: "string", required: true },
-    users: { type: "array", default: [] }
+    enabled: { type: "bool", env: "ENABLED", default: true },
+    jwtSecret: {
+        type: "string",
+        required: true,
+        env: "JWT_SECRET"
+    },
+    users: {
+        type: "array",
+        default:
+            env.APIXT_ENV_USERNAME && env.APIXT_ENV_PASSWORD
+                ? [
+                      {
+                          name: env.APIXT_ENV_USERNAME,
+                          password: env.APIXT_ENV_PASSWORD
+                      }
+                  ]
+                : []
+    }
 }
 
 const type2validator = {
@@ -163,10 +181,10 @@ const Section = (tree, name, parentClosed) => {
             tree.cmds[closeIndex] = { cmd: 2 }
             closed = true
             children.push(closeIndex)
-            children.sort()
-
-            tree.index2children[index] = children
-        }
+            children.sort(), (tree.index2children[index] = children)
+        },
+        startTimer: (...args) => tree.startTimer(...args),
+        stopTimer: (...args) => tree.stopTimer(...args)
     }
     tree.name2section.set(name, sec)
 
@@ -339,9 +357,11 @@ class Tree {
 
             body += JSON.stringify(node) + "\n"
             this.cmds[index] = {}
-            const children = this.index2children[index]
-            if (!children) return
+            const rawChildren = this.index2children[index]
+            if (!rawChildren) return
 
+            const children = [...rawChildren]
+            children.sort((a, b) => (a === b ? 0 : a < b ? -1 : 1))
             for (const child of children) {
                 stringifyTree(child)
             }
@@ -397,13 +417,38 @@ try {
 
 let routes = []
 
+const getResolvedOptionValue = (option, value) => {
+    if (!option.env) return value
+
+    const envName = "APIXT_" + option.env
+    const envValue = env[envName]
+    if (envValue) {
+        switch (option.type) {
+            case "bool":
+                return ["1", "true", "on"].includes(envValue.toLowerCase())
+
+            case "string":
+                return envValue
+
+            default:
+                throw Error(
+                    `Unsupported option type ${option.type} for environment variable ${envName}!`
+                )
+        }
+    }
+    return value
+}
+
+let enabled = true
+
 const apixt = {
-    active: true,
+    get active() {
+        return enabled
+    },
     init: (rawConfig) => {
         config = {}
-        for (const [key, value] of Object.entries(rawConfig)) {
-            const option = configOptions[key]
-            if (!option) throw Error(`Invalid config option "${key}" given`)
+        for (const [key, option] of Object.entries(configOptions)) {
+            const value = rawConfig[key]
 
             const validator = type2validator[option.type]
             if (!validator)
@@ -411,23 +456,25 @@ const apixt = {
                     `Invalid type "${option.type}" given for option "${key}"`
                 )
 
-            if (!validator(value)) {
+            let resolved = getResolvedOptionValue(option, value)
+            if (resolved === undefined) {
+                if (option.required && option.default === undefined)
+                    throw Error(
+                        `Missing required value for config key "${key}"`
+                    )
+
+                resolved = option.default
+            }
+
+            if (!validator(resolved)) {
                 throw Error(
-                    `Expected value of option "${key}" to be "${option.type}" but got ${typeof value}`
+                    `Expected value of option "${key}" to be "${option.type}" but got ${typeof resolved}`
                 )
             }
-            config[key] = value
-        }
-        for (const [key, option] of Object.entries(configOptions)) {
-            const value = config[key]
-            if (value) continue
-
-            if (option.required)
-                throw Error(`Missing required value for config key "${key}"`)
-
-            config[key] = option.default
+            config[key] = resolved
         }
         secretKey = new TextEncoder().encode(config.jwtSecret)
+        enabled = config.enabled
     },
     checkRequest: (req) => {
         const dumpHeader = req.header(config.dumpHeader)
@@ -518,7 +565,7 @@ const apixt = {
 
         if (!xt) return
 
-        const sec = xt.addSection("Http Response")
+        const sec = xt.addSection("API Response")
 
         const statusCode = res.statusCode
         const headers = res.getHeaders()
@@ -529,7 +576,7 @@ const apixt = {
         sec.openDetails()
         sec.addBlock("Headers", {
             mime: "text/plain",
-            html: headerLines.join("\n")
+            content: headerLines.join("\n")
         })
         sec.closeDetails()
 
@@ -538,10 +585,11 @@ const apixt = {
         footer["Status"] = statusCode
         footer["Content-Type"] = contentParts.join(";")
 
-        sec.addBlock("Http Response", {
+        sec.addBlock("Body", {
             footer,
             mime: contentParts[0],
-            html: buffer,
+            content: buffer,
+            tags: ["api.response"],
             isError: statusCode < 200 || statusCode >= 400
         })
         sec.close()
@@ -552,7 +600,7 @@ const apixt = {
 
         xt.addBlock("Execution Times", {
             mime: "text/json",
-            html: xt.getTimerResults()
+            content: xt.getTimerResults()
         })
     },
     handleErrors(err, req, res, next) {

@@ -2,7 +2,12 @@
   "name": "node-apixt",
   "version": "0.0.1",
   "description": "Extends your nodejs API with a web interface in the browser, simplifying development and debugging",
-  "main": "index.js",
+  "main": "index.cjs",
+  "module": "index.js",
+  "exports": {
+    "import": "./index.js",
+    "require": "./index.cjs"
+  },
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

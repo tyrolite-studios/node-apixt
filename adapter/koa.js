@@ -4,6 +4,12 @@ import { koaBody } from "koa-body"
 import debugInst from "debug"
 const debug = debugInst("apixt")
 
+function getUtf8ByteLength(string) {
+    const utf8Encoder = new TextEncoder()
+    const utf8Bytes = utf8Encoder.encode(string)
+    return utf8Bytes.length
+}
+
 const expressReq = (ctx) => ({
     header: (name) => ctx.req.headers[name.toLowerCase()],
     get headers() {
@@ -44,28 +50,29 @@ const adapter = (config, koa) => {
     debug("Starting Apixt Koa Adapter with config", config)
     let koaApp = new koa()
     apixt.init(config)
+    const active = apixt.active
 
     koaApp.use(async (ctx, next) => {
-        const { url, method } = ctx.req
-        if (method === "GET") {
-            if (url === apixt.config.dumpPath) {
-                apixt.handleIndex(expressReq(ctx), expressRes(ctx))
-            } else if (url === apixt.config.dumpPath + "/index.js") {
-                await apixt.handleDumpJs(expressReq(ctx), expressRes(ctx))
-            } else if (url === apixt.config.dumpPath + "/refresh") {
-                await apixt.handleRefresh(expressReq(ctx), expressRes(ctx))
+        if (active) {
+            const { url, method } = ctx.req
+            if (method === "GET") {
+                if (url === apixt.config.dumpPath) {
+                    apixt.handleIndex(expressReq(ctx), expressRes(ctx))
+                } else if (url === apixt.config.dumpPath + "/index.js") {
+                    await apixt.handleDumpJs(expressReq(ctx), expressRes(ctx))
+                } else if (url === apixt.config.dumpPath + "/refresh") {
+                    await apixt.handleRefresh(expressReq(ctx), expressRes(ctx))
+                }
+            } else if (method === "POST" && url === apixt.config.dumpPath) {
+                const mw = koaBody({})
+
+                await mw(ctx, async () => {})
+                await apixt.handleLogin(expressReq(ctx), expressRes(ctx))
             }
-        } else if (method === "POST" && url === apixt.config.dumpPath) {
-            const mw = koaBody({})
+            const sent = ctx.sent
 
-            await mw(ctx, async () => {})
-            await apixt.handleLogin(expressReq(ctx), expressRes(ctx))
+            if (sent) return
         }
-        const sent = ctx.sent
-
-        if (sent) return
-
-        const active = apixt.active
         ctx.d = () => {}
         ctx.req.d = () => {}
         ctx.res.d = () => {}
@@ -98,30 +105,39 @@ const adapter = (config, koa) => {
 
             ctx.status = 200
             ctx.set("Content-Type", "text/json")
-            ctx.set("Content-Length", body.length)
+            ctx.set("Content-Length", getUtf8ByteLength(body))
 
             oEnd.call(ctx.res, body, ...args)
         }
         await next()
     })
 
+    const autoExtractRoutes = () => {
+        if (!active) return
+
+        debug("Try to extract routes from router middlewares...")
+        for (const mw of koaApp.middleware) {
+            const router = mw.router
+            if (!router) continue
+
+            for (const layer of router.stack) {
+                debug(
+                    `Adding route: ${layer.methods.join(", ")}: ${layer.path}`
+                )
+                apixt.addRoute(layer.path, layer.methods)
+            }
+        }
+    }
+
     const app = new Proxy(koaApp, {
         get(target, prop) {
             if (prop === "listen") {
-                debug("Try to extract routes from router middlewares...")
-                for (const mw of koaApp.middleware) {
-                    const router = mw.router
-                    if (!router) continue
-
-                    for (const layer of router.stack) {
-                        debug(
-                            `Adding route: ${layer.methods.join(", ")}: ${layer.path}`
-                        )
-                        apixt.addRoute(layer.path, layer.methods)
-                    }
-                }
-
+                autoExtractRoutes()
                 return target.listen
+            }
+            if (prop === "prepareListen") {
+                autoExtractRoutes()
+                return (x) => x
             }
             return target[prop]
         }
