@@ -131,13 +131,17 @@ const adapter = (config, koa) => {
 
     const app = new Proxy(koaApp, {
         get(target, prop) {
+            if (prop === "hasApixt") return true
+
             if (prop === "listen") {
                 autoExtractRoutes()
                 return target.listen
             }
             if (prop === "prepareListen") {
-                autoExtractRoutes()
-                return (x) => x
+                return (x) => {
+                    autoExtractRoutes()
+                    return x
+                }
             }
             return target[prop]
         }
